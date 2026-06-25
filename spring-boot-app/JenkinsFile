@@ -45,6 +45,7 @@ pipeline {
         }
       }
     }
+
     stage('Update Deployment File') {
     environment {
         GIT_REPO_NAME = "jenkins-cicd"
@@ -54,23 +55,23 @@ pipeline {
         // Explicitly use the workspace root
         dir("${WORKSPACE}") {
             withCredentials([string(credentialsId: 'github', variable: 'GITHUB_TOKEN')]) {
-                sh '''
-                    echo "Current directory: $(pwd)"
-                    echo "Listing files:"
-                    ls -la
-                    echo "Checking git status:"
-                    git status || true
-                '''
-                // Now the git commands
-                sh '''
-                    git config user.email "hetkumar@cloudthat.com"
-                    git config user.name "Het Ratanpara"
-                    # Use BUILD_NUMBER from environment (needs to be passed)
+               sh '''
+                    # Trust the workspace (fixes the dubious ownership error)
+                    git config --global --add safe.directory $WORKSPACE
+
+                    # set global user identity (not local)
+                    git config --global user.email "hetkumar@cloudthat.com"
+                    git config --global user.name "Het Ratanpara"
+
+                    # Update the deployment file with the new image tag
                     sed -i "s/replaceImageTag/${BUILD_NUMBER}/g" spring-boot-app-manifests/deployment.yml
+
+                    # Commit and push
                     git add spring-boot-app-manifests/deployment.yml
                     git commit -m "Update deployment image to version ${BUILD_NUMBER}"
                     git push https://${GITHUB_TOKEN}@github.com/${GIT_USER_NAME}/${GIT_REPO_NAME} HEAD:main
-                '''
+                ''' 
+              
             }
         }
     }
