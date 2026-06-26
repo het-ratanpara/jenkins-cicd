@@ -53,17 +53,17 @@ pipeline {
             }
         }
 
-        stage('Update Deployment File') {
+       stage('Update Deployment File') {
     steps {
         dir("${WORKSPACE}") {
             withCredentials([string(credentialsId: 'github', variable: 'GITHUB_TOKEN')]) {
                 sh '''
-                    # Configure Git locally (no --global)
+                    # Configure Git locally
                     git config user.email "hetkumar@cloudthat.com"
                     git config user.name "Het Ratanpara"
 
-                    # Update image tag while preserving original indentation
-                    sed -i "s/^\\([[:space:]]*\\)image:.*/\\1image: ${DOCKER_IMAGE_NAME}:${BUILD_NUMBER}/" spring-boot-app-manifests/deployment.yml
+                    # Update image tag using pipe delimiter to avoid slash conflict
+                    sed -i "s|^\\([[:space:]]*\\)image:.*|\\1image: ${DOCKER_IMAGE_NAME}:${BUILD_NUMBER}|" spring-boot-app-manifests/deployment.yml
 
                     # Stage, commit, push
                     git add spring-boot-app-manifests/deployment.yml
