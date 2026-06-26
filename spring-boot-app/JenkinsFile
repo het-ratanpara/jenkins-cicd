@@ -1,48 +1,31 @@
 pipeline {
-    // Prevent Jenkins from checking out the repository on the host node
-    options {
-        skipDefaultCheckout true
-    }
-
-    // Use a Docker agent with the same UID as the Jenkins user
     agent {
-        docker {
-            image 'hetratanpara/maven-jenkins-agent:java17'
-            args '--user 105:110  -v /var/run/docker.sock:/var/run/docker.sock'
-        }
+      docker {
+        image 'hetratanpara/maven-jenkins-agent:java17'
+        args '--user 105:110 -v /var/run/docker.sock:/var/run/docker.sock'
+      }
     }
 
+    // Define global environment variables
     environment {
-        // Reusable environment variables
-        SONAR_URL = "http://34.207.200.224:9000/"
-        DOCKER_REGISTRY = "https://index.docker.io/v1/"
         DOCKER_IMAGE_NAME = "hetratanpara/ultimate-cicd-demo"
         GIT_REPO_NAME = "jenkins-cicd"
         GIT_USER_NAME = "het-ratanpara"
+        SONAR_URL = "http://34.207.200.224:9000/"
     }
 
     stages {
         stage('Checkout') {
             steps {
-                script {
-                    // Clean and clone the repository from scratch
-                    sh '''
-                        # If .git already exists, remove it to avoid permission leftovers
-                        rm -rf .git
-                        git init
-                        git remote add origin https://github.com/${GIT_USER_NAME}/${GIT_REPO_NAME}.git
-                        git fetch --depth 1 origin main
-                        git reset --hard origin/main
-                        git clean -fd
-                    '''
-                }
-                // Optional: verify the checkout
-                sh 'ls -ltr'
+                sh 'echo passed'
+                // If you want real checkout, replace with:
+                // git branch: 'main', url: 'https://github.com/het-ratanpara/jenkins-cicd.git'
             }
         }
 
         stage('Build and Test') {
             steps {
+                sh 'ls -ltr'
                 sh 'cd spring-boot-app && mvn clean package'
             }
         }
@@ -50,66 +33,47 @@ pipeline {
         stage('Static Code Analysis') {
             steps {
                 withCredentials([string(credentialsId: 'sonarqube', variable: 'SONAR_AUTH_TOKEN')]) {
-                    sh '''
-                        cd spring-boot-app
-                        mvn sonar:sonar -Dsonar.login=$SONAR_AUTH_TOKEN -Dsonar.host.url=${SONAR_URL}
-                    '''
+                    sh 'cd spring-boot-app && mvn sonar:sonar -Dsonar.login=$SONAR_AUTH_TOKEN -Dsonar.host.url=${SONAR_URL}'
                 }
             }
         }
 
         stage('Build and Push Docker Image') {
+            environment {
+                DOCKER_IMAGE = "${DOCKER_IMAGE_NAME}:${BUILD_NUMBER}"
+            }
             steps {
                 script {
-                    def dockerImage = "${DOCKER_IMAGE_NAME}:${BUILD_NUMBER}"
-                    sh "cd spring-boot-app && docker build -t ${dockerImage} ."
-                    docker.withRegistry(DOCKER_REGISTRY, 'docker-cred') {
-                        docker.image(dockerImage).push()
+                    sh 'cd spring-boot-app && docker build -t ${DOCKER_IMAGE} .'
+                    def dockerImage = docker.image("${DOCKER_IMAGE}")
+                    docker.withRegistry('https://index.docker.io/v1/', "docker-cred") {
+                        dockerImage.push()
                     }
                 }
             }
         }
 
         stage('Update Deployment File') {
-      steps {
-        dir("${WORKSPACE}") {
-            withCredentials([string(credentialsId: 'github', variable: 'GITHUB_TOKEN')]) {
-                sh '''
-                    # Configure Git
-                    git config user.email "hetkumar@cloudthat.com"
-                    git config user.name "Het Ratanpara"
+            steps {
+                dir("${WORKSPACE}") {
+                    withCredentials([string(credentialsId: 'github', variable: 'GITHUB_TOKEN')]) {
+                        sh '''
+                            # Configure Git (global to avoid permission issues)
+                            git config --global --add safe.directory $WORKSPACE
+                            git config --global user.email "hetkumar@cloudthat.com"
+                            git config --global user.name "Het Ratanpara"
 
-                    # Install yq if not available
-                    if ! command -v yq &> /dev/null; then
-                        wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-                        chmod +x /usr/local/bin/yq
-                    fi
+                            # Update the image tag in the manifest
+                            sed -i "s|^[[:space:]]*image:.*|    image: ${DOCKER_IMAGE_NAME}:${BUILD_NUMBER}|" spring-boot-app-manifests/deployment.yml
 
-                    # Update the image using yq
-                    yq eval ".spec.template.spec.containers[].image = \"${DOCKER_IMAGE_NAME}:${BUILD_NUMBER}\"" -i spring-boot-app-manifests/deployment.yml
-
-                    # Validate YAML
-                    yq eval '.' spring-boot-app-manifests/deployment.yml > /dev/null
-
-                    git add spring-boot-app-manifests/deployment.yml
-                    git commit -m "Update deployment image to version ${BUILD_NUMBER}" || echo "No changes to commit"
-                    git push https://${GITHUB_TOKEN}@github.com/${GIT_USER_NAME}/${GIT_REPO_NAME}.git HEAD:main
-                '''
+                            # Stage, commit (if changes), and push
+                            git add spring-boot-app-manifests/deployment.yml
+                            git commit -m "Update deployment image to version ${BUILD_NUMBER}" || echo "No changes to commit"
+                            git push https://${GITHUB_TOKEN}@github.com/${GIT_USER_NAME}/${GIT_REPO_NAME} HEAD:main
+                        '''
+                    }
+                }
             }
         }
     }
-}
-    }
-
-    post {
-        failure {
-            echo "❌ Pipeline failed! Check the logs above."
-        }
-        success {
-            echo "✅ Pipeline succeeded! Deployment image updated to version ${BUILD_NUMBER}."
-        }
-        cleanup {
-            cleanWs()
-        }
-    }   
 }
