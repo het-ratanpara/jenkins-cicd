@@ -1,80 +1,94 @@
 pipeline {
-  agent {
-    docker {
-        image 'hetratanpara/maven-jenkins-agent:java17'
-        args '--user 105:105 -v /var/run/docker.sock:/var/run/docker.sock'
+    options {
+        skipDefaultCheckout true  
     }
-  }
-  stages {
-    stage('Checkout') {
-      steps {
-        sh 'echo passed'
-        //git branch: 'main', url: 'https://github.com/iam-veeramalla/Jenkins-Zero-To-Hero.git'
-      }
-    }
-    stage('Build and Test') {
-      steps {
-        sh 'ls -ltr'
-        // build the project and create a JAR file
-        sh 'cd spring-boot-app && mvn clean package'
-      }
-    }
-    stage('Static Code Analysis') {
-      environment {
-        SONAR_URL = "http://34.207.200.224:9000/"
-      }
-      steps {
-        withCredentials([string(credentialsId: 'sonarqube', variable: 'SONAR_AUTH_TOKEN')]) {
-          sh 'cd spring-boot-app && mvn sonar:sonar -Dsonar.login=$SONAR_AUTH_TOKEN -Dsonar.host.url=${SONAR_URL}'
+
+    agent {
+        docker {
+            image 'hetratanpara/maven-jenkins-agent:java17'
+            args '--user 105:105 -v /var/run/docker.sock:/var/run/docker.sock'
         }
-      }
     }
-    stage('Build and Push Docker Image') {
-      environment {
-        DOCKER_IMAGE = "hetratanpara/ultimate-cicd-demo:${BUILD_NUMBER}"
-        // DOCKERFILE_LOCATION = "java-maven-sonar-argocd-helm-k8s/spring-boot-app/Dockerfile"
-        REGISTRY_CREDENTIALS = credentials('docker-cred')
-      }
-      steps {
-        script {
-            sh 'cd spring-boot-app && docker build -t ${DOCKER_IMAGE} .'
-            def dockerImage = docker.image("${DOCKER_IMAGE}")
-            docker.withRegistry('https://index.docker.io/v1/', "docker-cred") {
-                dockerImage.push()
+
+    stages {
+        stage('Checkout') {
+            steps {
+                // Checkout the repository inside the Docker container
+                checkout scm
+                // (Optional) list files to verify
+                sh 'ls -ltr'
             }
         }
-      }
-    }
 
-    stage('Update Deployment File') {
-    environment {
-        GIT_REPO_NAME = "jenkins-cicd"
-        GIT_USER_NAME = "het-ratanpara"
-    }
-    steps {
-        // Explicitly use the workspace root
-        dir("${WORKSPACE}") {
-            withCredentials([string(credentialsId: 'github', variable: 'GITHUB_TOKEN')]) {
-               sh '''
-                    # Trust the workspace (fixes the dubious ownership error)
-                    git config --global --add safe.directory $WORKSPACE
+        stage('Build and Test') {
+            steps {
+                sh 'cd spring-boot-app && mvn clean package'
+            }
+        }
 
-                    # set global user identity (not local)
-                    git config --global user.email "hetkumar@cloudthat.com"
-                    git config --global user.name "Het Ratanpara"
+        stage('Static Code Analysis') {
+            environment {
+                SONAR_URL = "http://34.207.200.224:9000/"
+            }
+            steps {
+                withCredentials([string(credentialsId: 'sonarqube', variable: 'SONAR_AUTH_TOKEN')]) {
+                    sh 'cd spring-boot-app && mvn sonar:sonar -Dsonar.login=$SONAR_AUTH_TOKEN -Dsonar.host.url=${SONAR_URL}'
+                }
+            }
+        }
 
-                    # Update the deployment file with the new image tag
-                    sed -i "s/replaceImageTag/${BUILD_NUMBER}/g" spring-boot-app-manifests/deployment.yml
+        stage('Build and Push Docker Image') {
+            environment {
+                DOCKER_IMAGE = "hetratanpara/ultimate-cicd-demo:${BUILD_NUMBER}"
+            }
+            steps {
+                script {
+                    sh 'cd spring-boot-app && docker build -t ${DOCKER_IMAGE} .'
+                    docker.withRegistry('https://index.docker.io/v1/', 'docker-cred') {
+                        docker.image("${DOCKER_IMAGE}").push()
+                    }
+                }
+            }
+        }
 
-                    # Commit and push
-                    git add spring-boot-app-manifests/deployment.yml
-                    git commit -m "Update deployment image to version ${BUILD_NUMBER}"
-                    git push https://${GITHUB_TOKEN}@github.com/${GIT_USER_NAME}/${GIT_REPO_NAME} HEAD:main
-                ''' 
-              
+        stage('Update Deployment File') {
+            environment {
+                GIT_REPO_NAME = "jenkins-cicd"
+                GIT_USER_NAME = "het-ratanpara"
+            }
+            steps {
+                dir("${WORKSPACE}") {
+                    withCredentials([string(credentialsId: 'github', variable: 'GITHUB_TOKEN')]) {
+                        sh '''
+                            # Trust the workspace
+                            git config --global --add safe.directory $WORKSPACE
+
+                            # Set user identity
+                            git config --global user.email "hetkumar@cloudthat.com"
+                            git config --global user.name "Het Ratanpara"
+
+                            # Replace the ENTIRE image line with the new tag
+                            # This works even if the file already has a different image
+                            sed -i "s|^[[:space:]]*image:.*|    image: hetratanpara/ultimate-cicd-demo:${BUILD_NUMBER}|" spring-boot-app-manifests/deployment.yml
+
+                            # Commit and push only if there are changes
+                            git add spring-boot-app-manifests/deployment.yml
+                            git commit -m "Update deployment image to version ${BUILD_NUMBER}" || echo "No changes to commit"
+                            git push https://${GITHUB_TOKEN}@github.com/${GIT_USER_NAME}/${GIT_REPO_NAME} HEAD:main
+                        '''
+                    }
+                }
             }
         }
     }
-  }
-  }
+
+    post {
+        failure {
+            // Optional: send notifications or clean up
+            echo "Pipeline failed!"
+        }
+        success {
+            echo "Pipeline succeeded!"
+        }
+    }
 }
