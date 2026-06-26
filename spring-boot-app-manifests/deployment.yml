@@ -22,7 +22,7 @@ spec:
     spec:
       containers:
         - name: spring-boot-app
-          image: hetratanpara/ultimate-cicd-demo:26
+          image: hetratanpara/ultimate-cicd-demo:27
           ports:
             - containerPort: 8080
           readinessProbe:
