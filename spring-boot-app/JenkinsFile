@@ -54,18 +54,18 @@ pipeline {
         }
 
         stage('Update Deployment File') {
-        steps {
-          dir("${WORKSPACE}") {
-              withCredentials([string(credentialsId: 'github', variable: 'GITHUB_TOKEN')]) {
+    steps {
+        dir("${WORKSPACE}") {
+            withCredentials([string(credentialsId: 'github', variable: 'GITHUB_TOKEN')]) {
                 sh '''
-                    # Configure Git (local only – no global)
+                    # Configure Git locally (no --global)
                     git config user.email "hetkumar@cloudthat.com"
                     git config user.name "Het Ratanpara"
 
-                    # Update the image tag in the manifest
-                    sed -i "s|^[[:space:]]*image:.*|    image: ${DOCKER_IMAGE_NAME}:${BUILD_NUMBER}|" spring-boot-app-manifests/deployment.yml
+                    # Update image tag while preserving original indentation
+                    sed -i "s/^\\([[:space:]]*\\)image:.*/\\1image: ${DOCKER_IMAGE_NAME}:${BUILD_NUMBER}/" spring-boot-app-manifests/deployment.yml
 
-                    # Stage, commit (if changes), and push
+                    # Stage, commit, push
                     git add spring-boot-app-manifests/deployment.yml
                     git commit -m "Update deployment image to version ${BUILD_NUMBER}" || echo "No changes to commit"
                     git push https://${GITHUB_TOKEN}@github.com/${GIT_USER_NAME}/${GIT_REPO_NAME} HEAD:main
