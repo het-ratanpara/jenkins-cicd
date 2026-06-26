@@ -1,6 +1,6 @@
 pipeline {
     options {
-        skipDefaultCheckout true  
+        skipDefaultCheckout true   // Disable automatic checkout on the host
     }
 
     agent {
@@ -13,9 +13,14 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                // Checkout the repository inside the Docker container
-                checkout scm
-                // (Optional) list files to verify
+                // Clean the workspace to avoid conflicts
+                deleteDir()
+                // Clone the repository manually
+                sh '''
+                    git clone https://github.com/het-ratanpara/jenkins-cicd.git .
+                    git checkout main
+                '''
+                // Optional: list files to verify
                 sh 'ls -ltr'
             }
         }
@@ -68,7 +73,6 @@ pipeline {
                             git config --global user.name "Het Ratanpara"
 
                             # Replace the ENTIRE image line with the new tag
-                            # This works even if the file already has a different image
                             sed -i "s|^[[:space:]]*image:.*|    image: hetratanpara/ultimate-cicd-demo:${BUILD_NUMBER}|" spring-boot-app-manifests/deployment.yml
 
                             # Commit and push only if there are changes
@@ -84,11 +88,10 @@ pipeline {
 
     post {
         failure {
-            // Optional: send notifications or clean up
             echo "Pipeline failed!"
         }
         success {
             echo "Pipeline succeeded!"
         }
     }
-}
+} 
