@@ -6,6 +6,11 @@ metadata:
     app: spring-boot-app
 spec:
   replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1 # Allows 1 extra Pod during update
+      maxUnavailable: 0 # Ensures NO old Pod is killed until new one is ready
   selector:
     matchLabels:
       app: spring-boot-app
@@ -16,6 +21,18 @@ spec:
     spec:
       containers:
         - name: spring-boot-app
-          image: hetratanpara/ultimate-cicd-demo:12
+          image: hetratanpara/ultimate-cicd-demo:10
           ports:
             - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /actuator/health # Spring Boot Actuator health endpoint
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
