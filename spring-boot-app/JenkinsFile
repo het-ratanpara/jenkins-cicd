@@ -8,7 +8,7 @@ pipeline {
     agent {
         docker {
             image 'hetratanpara/maven-jenkins-agent:java17'
-            args '--user 105:105 -v /var/run/docker.sock:/var/run/docker.sock'
+            args '--user 105:110  -v /var/run/docker.sock:/var/run/docker.sock'
         }
     }
 
