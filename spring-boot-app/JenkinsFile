@@ -71,30 +71,34 @@ pipeline {
         }
 
         stage('Update Deployment File') {
-            steps {
-                dir("${WORKSPACE}") {
-                    withCredentials([string(credentialsId: 'github', variable: 'GITHUB_TOKEN')]) {
-                        sh '''
-                            # Configure Git user identity (local to this repository)
-                            git config user.email "hetkumar@cloudthat.com"
-                            git config user.name "Het Ratanpara"
+      steps {
+        dir("${WORKSPACE}") {
+            withCredentials([string(credentialsId: 'github', variable: 'GITHUB_TOKEN')]) {
+                sh '''
+                    # Configure Git
+                    git config user.email "hetkumar@cloudthat.com"
+                    git config user.name "Het Ratanpara"
 
-                            # Replace the entire image line with the new tag
-                            sed -i "s|^[[:space:]]*image:.*|    image: ${DOCKER_IMAGE_NAME}:${BUILD_NUMBER}|" spring-boot-app-manifests/deployment.yml
+                    # Install yq if not available
+                    if ! command -v yq &> /dev/null; then
+                        wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+                        chmod +x /usr/local/bin/yq
+                    fi
 
-                            # Stage the change
-                            git add spring-boot-app-manifests/deployment.yml
+                    # Update the image using yq
+                    yq eval ".spec.template.spec.containers[].image = \"${DOCKER_IMAGE_NAME}:${BUILD_NUMBER}\"" -i spring-boot-app-manifests/deployment.yml
 
-                            # Commit only if there are changes
-                            git commit -m "Update deployment image to version ${BUILD_NUMBER}" || echo "No changes to commit"
+                    # Validate YAML
+                    yq eval '.' spring-boot-app-manifests/deployment.yml > /dev/null
 
-                            # Push to the main branch using the token for authentication
-                            git push https://${GITHUB_TOKEN}@github.com/${GIT_USER_NAME}/${GIT_REPO_NAME}.git HEAD:main
-                        '''
-                    }
-                }
+                    git add spring-boot-app-manifests/deployment.yml
+                    git commit -m "Update deployment image to version ${BUILD_NUMBER}" || echo "No changes to commit"
+                    git push https://${GITHUB_TOKEN}@github.com/${GIT_USER_NAME}/${GIT_REPO_NAME}.git HEAD:main
+                '''
             }
         }
+    }
+}
     }
 
     post {
